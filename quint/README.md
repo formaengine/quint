@@ -50,14 +50,22 @@ development tooling.
 
 ### Installation
 
-Formaengine fork tarballs include a native evaluator built from the same
-checkout for the packaging host's operating system and architecture. The CLI
+Formaengine release tarballs include native evaluators built from the same
+commit for Darwin arm64 and Linux x64. The CLI selects its operating system
+and architecture from the package's native bundle directories and
 verifies its bundled SHA-256 checksum before using it for either native
 simulation or the native REPL. It does not download a substitute or use the
 upstream evaluator cache. A missing host bundle or a checksum mismatch fails.
 
-To build a fork tarball from source, run `npm ci` and `npm pack` in `quint/`
-with Rust and Node installed. Package preparation builds the evaluator with
+The `Formaengine Package` Actions workflow builds both evaluators on native
+GitHub-hosted runners with Rust 1.90.0, Node 24.11.0, locked Cargo dependencies,
+one build job, and normalized build paths. It records each binary's checksum,
+source commit, toolchain and runner image, then assembles one tarball and
+installs and tests that tarball on both hosts. Release artifacts include
+`provenance.json`, `SHA256SUMS` and the npm SHA-512 integrity.
+
+For a local host-only package, run `npm ci` and `npm pack` in `quint/`
+with Rust and Node installed. Local package preparation builds the evaluator with
 `cargo build --release --locked --jobs 1`, bundles the executable and checksum,
 and compiles the CLI. Installing the resulting tarball needs no Rust toolchain.
 

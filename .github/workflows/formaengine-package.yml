@@ -1,0 +1,141 @@
+name: Formaengine Package
+
+on:
+  push:
+    branches: [formaengine/streaming-itf-0.33.1]
+    paths:
+      - .github/workflows/formaengine-package.yml
+      - evaluator/**
+      - quint/**
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  RUSTUP_TOOLCHAIN: 1.90.0
+  CARGO_INCREMENTAL: "0"
+  ZERO_AR_DATE: "1"
+
+jobs:
+  evaluator:
+    if: github.repository == 'formaengine/quint'
+    name: Evaluator (${{ matrix.platform }})
+    strategy:
+      max-parallel: 1
+      fail-fast: false
+      matrix:
+        include:
+          - platform: darwin-arm64
+            runner: macos-15
+          - platform: linux-x64
+            runner: ubuntu-24.04
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: quint
+    env:
+      BUNDLE_PLATFORM: ${{ matrix.platform }}
+      BUNDLE_RUNNER: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24.11.0
+      - name: Pin build inputs
+        run: |
+          nice -n 19 rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal
+          echo "SOURCE_DATE_EPOCH=$(GIT_MASTER=1 git show -s --format=%ct HEAD)" >> "$GITHUB_ENV"
+          echo "RUSTFLAGS=--remap-path-prefix=$GITHUB_WORKSPACE=/src/quint --remap-path-prefix=$HOME/.cargo=/cargo" >> "$GITHUB_ENV"
+      - name: Build the host evaluator
+        run: |
+          nice -n 19 npm ci --ignore-scripts --no-audit --no-fund
+          nice -n 19 npm run build:evaluator
+          nice -n 19 npm run compile
+      - name: Check native and streaming regressions
+        run: nice -n 19 npm run test-f -- test/nestedAny.test.ts test/binaryManager.test.ts test/streamingItf.test.ts --timeout 30000
+      - name: Record binary provenance
+        run: nice -n 19 node scripts/record-evaluator-build.cjs
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: evaluator-${{ matrix.platform }}
+          path: quint/src/rust/native/
+          if-no-files-found: error
+
+  package:
+    if: github.repository == 'formaengine/quint'
+    needs: evaluator
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: quint
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24.11.0
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: evaluator-*
+          merge-multiple: true
+          path: quint/src/rust/native/
+      - name: Assemble both verified host bundles
+        run: |
+          nice -n 19 npm ci --ignore-scripts --no-audit --no-fund
+          chmod +x src/rust/native/*/quint_evaluator
+          nice -n 19 npm run compile
+          chmod +x dist/src/cli.js dist/src/rust/native/*/quint_evaluator
+          mkdir -p "$RUNNER_TEMP/formaengine-release"
+          nice -n 19 npm pack --ignore-scripts --json --pack-destination "$RUNNER_TEMP/formaengine-release" > "$RUNNER_TEMP/formaengine-release/npm-pack.json"
+          nice -n 19 node scripts/record-release-package.cjs "$RUNNER_TEMP/formaengine-release"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: formaengine-quint-package
+          path: ${{ runner.temp }}/formaengine-release/
+          if-no-files-found: error
+
+  verify:
+    if: github.repository == 'formaengine/quint'
+    name: Installed package (${{ matrix.platform }})
+    needs: package
+    strategy:
+      max-parallel: 1
+      fail-fast: false
+      matrix:
+        include:
+          - platform: darwin-arm64
+            runner: macos-15
+          - platform: linux-x64
+            runner: ubuntu-24.04
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: quint
+    env:
+      BUNDLE_PLATFORM: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24.11.0
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: formaengine-quint-package
+          path: ${{ runner.temp }}/formaengine-release/
+      - name: Install without a Rust build and check the default native backend
+        run: |
+          mkdir -p "$RUNNER_TEMP/no-cargo" "$RUNNER_TEMP/installed"
+          printf '#!/bin/sh\necho "Unexpected Rust build during installation" >&2\nexit 79\n' > "$RUNNER_TEMP/no-cargo/cargo"
+          chmod +x "$RUNNER_TEMP/no-cargo/cargo"
+          cd "$RUNNER_TEMP/installed"
+          PATH="$RUNNER_TEMP/no-cargo:$PATH" nice -n 19 npm install --no-audit --no-fund "$RUNNER_TEMP/formaengine-release/informalsystems-quint-0.33.1.tgz"
+          cd "$GITHUB_WORKSPACE/quint"
+          nice -n 19 node scripts/check-release-package.cjs "$RUNNER_TEMP/installed/node_modules/@informalsystems/quint" "$RUNNER_TEMP/package-proof.json"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: verified-${{ matrix.platform }}
+          path: ${{ runner.temp }}/package-proof.json
+          if-no-files-found: error
