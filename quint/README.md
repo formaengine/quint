@@ -50,6 +50,17 @@ development tooling.
 
 ### Installation
 
+Formaengine fork tarballs include a native evaluator built from the same
+checkout for the packaging host's operating system and architecture. The CLI
+verifies its bundled SHA-256 checksum before using it for either native
+simulation or the native REPL. It does not download a substitute or use the
+upstream evaluator cache. A missing host bundle or a checksum mismatch fails.
+
+To build a fork tarball from source, run `npm ci` and `npm pack` in `quint/`
+with Rust and Node installed. Package preparation builds the evaluator with
+`cargo build --release --locked --jobs 1`, bundles the executable and checksum,
+and compiles the CLI. Installing the resulting tarball needs no Rust toolchain.
+
 The quickest way to install Quint is using npm.
 
 Install [node/npm](https://nodejs.org/en/download/package-manager) if you don't have it already. Then, open your terminal and run:

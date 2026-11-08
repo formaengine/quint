@@ -73,8 +73,9 @@
     "yargs": "^17.7.2"
   },
   "scripts": {
-    "compile": "genversion -e src/version.ts && tsc && copyfiles -u 1 ./src/reflection.proto ./src/builtin.qnt ./dist/src/",
-    "prepare": "rm -rf ./dist && npm run compile && chmod +x ./dist/src/cli.js",
+    "build:evaluator": "node scripts/build-evaluator.cjs",
+    "compile": "genversion -e src/version.ts && tsc && copyfiles -u 1 ./src/reflection.proto ./src/builtin.qnt \"./src/rust/native/**/*\" ./dist/src/",
+    "prepare": "npm run build:evaluator && rm -rf ./dist && npm run compile && chmod +x ./dist/src/cli.js",
     "test": "mocha --reporter-option maxDiffSize=0 -r ts-node/register test/*.test.ts test/**/*.test.ts test/**/**/*.test.ts",
     "test-w": "while inotifywait -r -e close_write ./ ; do npm run test; done",
     "test-f": "mocha --reporter-option maxDiffSize=0 -r ts-node/register",

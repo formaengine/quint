@@ -81,32 +81,46 @@ pub fn compile_lazy_op(op: &str) -> CompiledExprWithLazyArgs {
             // Executes the first enabled action from a randomized list of actions.
             // Returns false if no enabled actions are found.
             let next_vars_snapshot = env.var_storage.borrow().take_snapshot();
-
-            // Create array of indices and shuffle them
-            let mut indices: Vec<usize> = (0..args.len()).collect();
-            // Fisher-Yates shuffle algorithm using our randomizer
-            for i in (0..indices.len()).rev() {
-                // Casting should be safe as we shouldn't have more than usize::MAX options
-                // in an any statement
-                let j = env.rand.next((i + 1) as u64) as usize;
-                indices.swap(i, j);
-            }
-
-            // Try actions in shuffled order until we find one that's enabled
-            for i in indices {
-                env.var_storage.borrow_mut().clear_metadata();
-
-                let result = args[i].execute(env)?;
-
-                if result.as_bool() {
-                    // Found an enabled action - return true
-                    return Ok(Value::bool(true));
+            let enclosing_any = env.in_action_any;
+            let enclosing_action = if enclosing_any {
+                next_vars_snapshot.action_taken.clone()
+            } else {
+                None
+            };
+            env.in_action_any = true;
+            let result = (|| {
+                // Create array of indices and shuffle them
+                let mut indices: Vec<usize> = (0..args.len()).collect();
+                // Fisher-Yates shuffle algorithm using our randomizer
+                for i in (0..indices.len()).rev() {
+                    // Casting should be safe as we shouldn't have more than usize::MAX options
+                    // in an any statement
+                    let j = env.rand.next((i + 1) as u64) as usize;
+                    indices.swap(i, j);
                 }
 
-                // Reset state before trying next action
-                env.var_storage.borrow_mut().restore(&next_vars_snapshot);
-            }
-            Ok(Value::bool(false))
+                // Try actions in shuffled order until we find one that's enabled
+                for i in indices {
+                    {
+                        let mut storage = env.var_storage.borrow_mut();
+                        storage.clear_metadata();
+                        storage.action_taken = enclosing_action.clone();
+                    }
+
+                    let result = args[i].execute(env)?;
+
+                    if result.as_bool() {
+                        // Found an enabled action - return true
+                        return Ok(Value::bool(true));
+                    }
+
+                    // Reset state before trying next action
+                    env.var_storage.borrow_mut().restore(&next_vars_snapshot);
+                }
+                Ok(Value::bool(false))
+            })();
+            env.in_action_any = enclosing_any;
+            result
         },
         "actionAll" => |env, args| {
             // Executes all of the given actions, or none of them if any of them results in false.

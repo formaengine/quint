@@ -144,49 +144,56 @@ export function lazyBuiltinLambda(
       // Returns false if no enabled actions are found.
       const app: QuintApp = { id: 0n, kind: 'app', opcode: 'actionAny', args: [] }
       return (ctx, args) => {
-        const nextVarsSnapshot = ctx.varStorage.snapshot()
+        const enclosingAny = ctx.inActionAny
+        const enclosingAction = enclosingAny ? ctx.varStorage.actionTaken : undefined
+        ctx.inActionAny = true
+        try {
+          const nextVarsSnapshot = ctx.varStorage.snapshot()
 
-        // Create array of indices and shuffle them
-        const indices = Array.from(args.keys())
-        // Fisher-Yates shuffle algorithm
-        for (let i = indices.length - 1; i > 0; i--) {
-          const j = Number(ctx.rand(BigInt(i + 1)))
-          // Swap: indices[i] <--> indices[j]
-          ;[indices[i], indices[j]] = [indices[j], indices[i]]
-        }
-
-        // Try actions in shuffled order until we find one that's enabled
-        for (const i of indices) {
-          // Reset state for each attempt
-          ctx.varStorage.actionTaken = undefined
-          ctx.varStorage.nondetPicks.forEach((_, key) => {
-            ctx.varStorage.nondetPicks.set(key, undefined)
-          })
-
-          ctx.recorder.onAnyOptionCall(app, i)
-          const result = args[i](ctx)
-          ctx.recorder.onAnyOptionReturn(app, i)
-
-          if (result.isLeft()) {
-            return result
+          // Create array of indices and shuffle them
+          const indices = Array.from(args.keys())
+          // Fisher-Yates shuffle algorithm
+          for (let i = indices.length - 1; i > 0; i--) {
+            const j = Number(ctx.rand(BigInt(i + 1)))
+            // Swap: indices[i] <--> indices[j]
+            ;[indices[i], indices[j]] = [indices[j], indices[i]]
           }
 
-          if (result.value.toBool()) {
-            // Found an enabled action - record it and return true
-            const successor = ctx.varStorage.snapshot()
-            ctx.recorder.onAnyReturn(args.length, i)
-            ctx.varStorage.recoverSnapshot(successor)
-            return right(rv.mkBool(true))
+          // Try actions in shuffled order until we find one that's enabled
+          for (const i of indices) {
+            // Only the outermost choice replaces the enclosing action with its branch name.
+            ctx.varStorage.actionTaken = enclosingAction
+            ctx.varStorage.nondetPicks.forEach((_, key) => {
+              ctx.varStorage.nondetPicks.set(key, undefined)
+            })
+
+            ctx.recorder.onAnyOptionCall(app, i)
+            const result = args[i](ctx)
+            ctx.recorder.onAnyOptionReturn(app, i)
+
+            if (result.isLeft()) {
+              return result
+            }
+
+            if (result.value.toBool()) {
+              // Found an enabled action - record it and return true
+              const successor = ctx.varStorage.snapshot()
+              ctx.recorder.onAnyReturn(args.length, i)
+              ctx.varStorage.recoverSnapshot(successor)
+              return right(rv.mkBool(true))
+            }
+
+            // Reset state before trying next action
+            ctx.varStorage.recoverSnapshot(nextVarsSnapshot)
           }
 
-          // Reset state before trying next action
+          // No enabled actions found
+          ctx.recorder.onAnyReturn(args.length, -1)
           ctx.varStorage.recoverSnapshot(nextVarsSnapshot)
+          return right(rv.mkBool(false))
+        } finally {
+          ctx.inActionAny = enclosingAny
         }
-
-        // No enabled actions found
-        ctx.recorder.onAnyReturn(args.length, -1)
-        ctx.varStorage.recoverSnapshot(nextVarsSnapshot)
-        return right(rv.mkBool(false))
       }
     }
     case 'actionAll':

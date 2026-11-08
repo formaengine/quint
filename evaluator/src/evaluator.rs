@@ -106,6 +106,9 @@ pub struct Env {
 
     // Verbosity level controlling debug output collection.
     pub verbosity: Verbosity,
+
+    // Whether an enclosing action choice is currently selecting a branch.
+    pub in_action_any: bool,
 }
 
 impl Env {
@@ -116,6 +119,7 @@ impl Env {
             trace: Vec::new(),
             diagnostics: Vec::new(),
             verbosity,
+            in_action_any: false,
         }
     }
 
@@ -131,6 +135,7 @@ impl Env {
             trace: Vec::new(),
             diagnostics: Vec::new(),
             verbosity,
+            in_action_any: false,
         }
     }
 

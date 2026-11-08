@@ -1,7 +1,7 @@
 # Integration tests with the Rust backend
 
-Tests in this script verify that Quint can download and run simulation with the
-`rust` backend (`--backend rust`).
+Tests in this script verify that the fork CLI runs its bundled evaluator with
+the `rust` backend (`--backend rust`) without populating an evaluator cache.
 
 Note that these tests only run before releases.
 
@@ -9,25 +9,28 @@ Note that these tests only run before releases.
 bash -
 -->
 
-## Downloads the rust backend and run a simulation
+## Runs the bundled evaluator with an empty configuration directory
 
-Asserts that on an empty `QUINT_HOME` directory, it downloads the latest Rust
-evaluator from GitHub releases. Note that a successful run indicates a
-successful download and execution of the spec with the set backend.
+The package provides its host-specific executable and SHA-256 checksum.
+An empty `QUINT_HOME` needs no evaluator installation.
 
 This test passes the `--n-threads` flag to the rust backend to check that the
 CLI accepts it correctly.
 
-<!-- !test in download and run -->
+<!-- !test in bundled evaluator -->
 ```
-QUINT_HOME="$(mktemp -d)" quint run \
+directory="$(mktemp -d)"
+trap 'rm -rf "$directory"' EXIT
+QUINT_HOME="$directory/home" quint run \
   --backend=rust \
   --n-threads=4 \
   ./testFixture/simulator/gettingStarted.qnt \
-  | grep -o "Downloading Rust evaluator from https://api.github.com/repos/quint-co/quint/releases/assets/"
+  > "$directory/output"
+grep -o '\[ok\]' "$directory/output"
+test ! -e "$directory/home"
 ```
 
-<!-- !test out download and run -->
+<!-- !test out bundled evaluator -->
 ```
-Downloading Rust evaluator from https://api.github.com/repos/quint-co/quint/releases/assets/
+[ok]
 ```

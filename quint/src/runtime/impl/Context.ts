@@ -60,6 +60,9 @@ export class Context {
    */
   public varStorage: VarStorage
 
+  /** Whether an enclosing action choice is currently selecting a branch. */
+  public inActionAny = false
+
   /**
    * Constructs a new evaluation context.
    *
