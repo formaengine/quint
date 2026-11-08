@@ -13,13 +13,13 @@
  * @module
  */
 import { QuintApp, QuintEx, QuintModule, QuintStr } from '../ir/quintIr'
-import { Outcome } from '../simulation'
+import { Outcome, SimulationTrace } from '../simulation'
 import { TraceHook } from '../cliReporting'
 import { debugLog } from '../verbosity'
 import JSONbig from 'json-bigint'
 import { LookupDefinition, LookupTable } from '../names/base'
 import { parseJsonBig, reviveQuintError } from '../jsonHelper'
-import { ItfState, ItfValue, diagnosticsOfItf, ofItf, pendingDiagnosticsOfItf } from '../itf'
+import { ItfState, ItfTrace, ItfValue, diagnosticsOfItf, ofItf, pendingDiagnosticsOfItf } from '../itf'
 import { Presets, SingleBar } from 'cli-progress'
 import readline from 'readline'
 import { spawn } from 'child_process'
@@ -92,7 +92,7 @@ export class CommandWrapper {
       verbosity: this.verbosityLevel,
     }
 
-    const result = await this.runRustEvaluator('simulate-from-stdin', input, {
+    let result = await this.runRustEvaluator('simulate-from-stdin', input, {
       format: 'Running... [{bar}] {percentage}% | ETA: {eta}s | {value}/{total} samples | {speed} samples/s',
       total: nruns,
     })
@@ -111,38 +111,40 @@ export class CommandWrapper {
       }
     }
 
-    const output = result.value
-
     try {
-      const parsed: Outcome = parseJsonBig(output)
+      const parsed: Omit<Outcome, 'bestTraces'> & {
+        bestTraces: { states: ItfTrace; seed: { toString(): string }; result: boolean }[]
+      } = parseJsonBig(result.value)
+      // The parsed tree owns the data now; do not retain the stdout string during conversion.
+      result = right('')
       parsed.errors = parsed.errors.map(reviveQuintError)
 
-      // Convert traces to ITF and ensure seed is bigint Note: When a
-      // SimulationError occurs in Rust, the error trace is included in
-      // bestTraces with result=false
-      parsed.bestTraces = parsed.bestTraces.map((trace: any) => ({
-        ...trace,
-        seed: BigInt(trace.seed),
-        states: ofItf(trace.states),
-        diagnostics: diagnosticsOfItf(trace.states),
-        pendingDiagnostics: pendingDiagnosticsOfItf(trace.states),
-      }))
-
-      // Call onTrace callback for each trace
-      if (onTrace && parsed.bestTraces.length > 0 && parsed.bestTraces[0].states.length > 0) {
-        const firstState = parsed.bestTraces[0].states[0] as QuintApp
-        const vars: string[] = []
-        for (let i = 0; i < firstState.args.length; i += 2) {
-          vars.push((firstState.args[i] as QuintStr).value)
+      const vars: string[] = []
+      const writeTraces = parsed.bestTraces.length > 0 && parsed.bestTraces[0].states.states.length > 0
+      const bestTraces: SimulationTrace[] = parsed.bestTraces.map((trace, index) => {
+        const states = ofItf(trace.states)
+        const diagnostics = diagnosticsOfItf(trace.states)
+        const pendingDiagnostics = pendingDiagnosticsOfItf(trace.states)
+        const seed = BigInt(trace.seed.toString())
+        if (onTrace && writeTraces) {
+          if (index === 0) {
+            const firstState = states[0] as QuintApp
+            for (let i = 0; i < firstState.args.length; i += 2) {
+              vars.push((firstState.args[i] as QuintStr).value)
+            }
+          }
+          const status = trace.result ? 'ok' : 'violation'
+          onTrace(index, status, vars, states)
         }
 
-        parsed.bestTraces.forEach((trace: any, index: number) => {
-          const status = trace.result ? 'ok' : 'violation'
-          onTrace(index, status, vars, trace.states)
-        })
-      }
+        // Release the raw states too, as each trace is consumed.
+        trace.states.states = []
+        return index === 0
+          ? { states, diagnostics, pendingDiagnostics, result: trace.result, seed }
+          : { states: [], result: trace.result, seed }
+      })
 
-      return parsed
+      return { ...parsed, bestTraces }
     } catch (error) {
       throw new Error(`Failed to parse data from Rust evaluator: ${error} ${JSONbig.stringify(error)}`)
     }

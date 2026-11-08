@@ -33,6 +33,7 @@ export interface SimulatorOptions {
 }
 
 export interface SimulationTrace {
+  /** Only the first best trace retains its payload after simulation; onTrace receives every payload. */
   states: QuintEx[]
   diagnostics?: DebugMessage[][]
   pendingDiagnostics?: DebugMessage[]

@@ -290,7 +290,8 @@ export class Evaluator {
           onTrace(index, status, this.varNames(), states)
         }
 
-        return right({ states, result: simulationSucceeded, seed: trace.seed })
+        // Only the first payload is read after simulation; the hook consumes every trace above.
+        return right({ states: index === 0 ? states : [], result: simulationSucceeded, seed: trace.seed })
       })
     )
 
