@@ -1,5 +1,5 @@
 import { compact } from 'lodash'
-import { MarkupContent } from 'vscode-languageclient'
+import { MarkupContent } from 'vscode-languageserver/node'
 import { CompletionItem, CompletionItemKind, MarkupKind, Position } from 'vscode-languageserver/node'
 import {
   AnalysisOutput,
